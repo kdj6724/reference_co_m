@@ -42,12 +42,32 @@
 #define __MAIN_H__
 
 /* Includes ------------------------------------------------------------------*/
+#include "stm32f1xx_ll_usart.h"
+#include "stm32f1xx_ll_rcc.h"
+#include "stm32f1xx_ll_bus.h"
+#include "stm32f1xx_ll_system.h"
+#include "stm32f1xx_ll_exti.h"
+#include "stm32f1xx_ll_cortex.h"
+#include "stm32f1xx_ll_utils.h"
+#include "stm32f1xx_ll_pwr.h"
+#include "stm32f1xx_ll_dma.h"
+#include "stm32f1xx.h"
+#include "stm32f1xx_ll_gpio.h"
 
 /* USER CODE BEGIN Includes */
 
 /* USER CODE END Includes */
 
 /* Private define ------------------------------------------------------------*/
+
+#define MOTOR_DIR1_Pin GPIO_PIN_14
+#define MOTOR_DIR1_GPIO_Port GPIOC
+#define MOTOR_DIR2_Pin GPIO_PIN_15
+#define MOTOR_DIR2_GPIO_Port GPIOC
+#define PWM_CH1_Pin GPIO_PIN_0
+#define PWM_CH1_GPIO_Port GPIOA
+#define PWM_CH2_Pin GPIO_PIN_1
+#define PWM_CH2_GPIO_Port GPIOA
 
 /* ########################## Assert Selection ############################## */
 /**

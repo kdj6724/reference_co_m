@@ -41,11 +41,19 @@
 #include "stm32f1xx_hal.h"
 
 /* USER CODE BEGIN Includes */
-
+#include "rebot_motor.h"
+#include "dev/display/ssd1306.h"
+#include "dev/font/fonts.h"
+#include "dev/connectivity/hc_06.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
-UART_HandleTypeDef huart1;
+I2C_HandleTypeDef hi2c1;
+DMA_HandleTypeDef hdma_i2c1_tx;
+DMA_HandleTypeDef hdma_i2c1_rx;
+
+TIM_HandleTypeDef htim2;
+
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
@@ -57,9 +65,15 @@ UART_HandleTypeDef huart3;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART3_UART_Init(void);
+static void MX_I2C1_Init(void);
+static void MX_TIM2_Init(void);
+                                    
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+                                
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
@@ -67,11 +81,21 @@ static void MX_USART3_UART_Init(void);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
+#if 0
 int _write(int file, char* data, int len) {
 	HAL_StatusTypeDef status =
 		HAL_UART_Transmit(&huart1, (uint8_t*)data, len, 1000);
 	return (status == HAL_OK ? len : 0);
 }
+#endif
+void USART_Rx_Callback(USART_TypeDef* uart) {
+  hc06_usart_rx_callback(uart);
+} 
+#if 0
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+}
+#endif
+
 /* USER CODE END 0 */
 
 /**
@@ -82,7 +106,8 @@ int _write(int file, char* data, int len) {
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+	char data[128];
+	RebotMotor rebotMotor;
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -103,10 +128,31 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
+  MX_I2C1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  memset(data, 0, sizeof(data));
+
+  // display
+  ssd1306_Init();
+  HAL_Delay(1000);
+  ssd1306_Fill(White);
+  ssd1306_UpdateScreen();
+  ssd1306_SetCursor(23,23);
+  
+  // motor
+  rebotMotor.left.pwm = &htim2;
+  rebotMotor.left.channel = TIM_CHANNEL_1;
+
+  rebotMotor.right.pwm = &htim2;
+  rebotMotor.right.channel = TIM_CHANNEL_2;
+
+  // bluetooth
+  hc06_init(USART1);
 
   /* USER CODE END 2 */
 
@@ -114,8 +160,46 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  printf("Ref test\r\n");
+	if (dequeue(&hc06MessageQueue_, data) > 0) {
+		ssd1306_Fill(White);
+		ssd1306_SetCursor(23,23);
+		switch(data[0]) {
+		case 'A':
+			rebot_forward(&rebotMotor, REBOT_MOTOR_MAX);
+			ssd1306_WriteString("Forward",Font_11x18,Black);
+			break;
+		case 'B':
+			rebot_stop(&rebotMotor);
+			ssd1306_WriteString("Backward",Font_11x18,Black);
+			break;
+		case 'C':
+			rebot_turn_left(&rebotMotor);
+			ssd1306_WriteString("Turn left",Font_11x18,Black);
+			break;
+		case 'D':
+			rebot_turn_right(&rebotMotor);
+			ssd1306_WriteString("Turn right",Font_11x18,Black);
+			break;
+		}
+		ssd1306_UpdateScreen();
+		memset(data, 0, sizeof(data));
+	}
+	HAL_Delay(200);
+#if 0
+	  ssd1306_SetCursor(23,23);
+	  ssd1306_WriteString("SEOUL",Font_11x18,Black);
+	  ssd1306_UpdateScreen();
+	  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+	  	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 	  HAL_Delay(1000);
+	  ssd1306_SetCursor(23,23);
+	  ssd1306_Fill(White);
+	  ssd1306_WriteString("HUB",Font_11x18,Black);
+	  ssd1306_UpdateScreen();
+	  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
+	  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_2);
+	  HAL_Delay(1000);
+#endif
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
@@ -175,22 +259,109 @@ void SystemClock_Config(void)
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 }
 
+/* I2C1 init function */
+static void MX_I2C1_Init(void)
+{
+
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 400000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+}
+
+/* TIM2 init function */
+static void MX_TIM2_Init(void)
+{
+
+  TIM_MasterConfigTypeDef sMasterConfig;
+  TIM_OC_InitTypeDef sConfigOC;
+
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 1000;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 500;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+  HAL_TIM_MspPostInit(&htim2);
+
+}
+
 /* USART1 init function */
 static void MX_USART1_UART_Init(void)
 {
 
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 9600;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    _Error_Handler(__FILE__, __LINE__);
-  }
+  LL_USART_InitTypeDef USART_InitStruct;
+
+  LL_GPIO_InitTypeDef GPIO_InitStruct;
+
+  /* Peripheral clock enable */
+  LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_USART1);
+  
+  /**USART1 GPIO Configuration  
+  PA9   ------> USART1_TX
+  PA10   ------> USART1_RX 
+  */
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_9;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_HIGH;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_10;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_FLOATING;
+  LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* USART1 interrupt Init */
+  NVIC_SetPriority(USART1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+  NVIC_EnableIRQ(USART1_IRQn);
+
+  USART_InitStruct.BaudRate = 9600;
+  USART_InitStruct.DataWidth = LL_USART_DATAWIDTH_8B;
+  USART_InitStruct.StopBits = LL_USART_STOPBITS_1;
+  USART_InitStruct.Parity = LL_USART_PARITY_NONE;
+  USART_InitStruct.TransferDirection = LL_USART_DIRECTION_TX_RX;
+  USART_InitStruct.HardwareFlowControl = LL_USART_HWCONTROL_NONE;
+  LL_USART_Init(USART1, &USART_InitStruct);
+
+  LL_USART_ConfigAsyncMode(USART1);
+
+  LL_USART_Enable(USART1);
 
 }
 
@@ -232,6 +403,24 @@ static void MX_USART3_UART_Init(void)
 
 }
 
+/** 
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void) 
+{
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel6_IRQn);
+  /* DMA1_Channel7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
+
+}
+
 /** Configure pins as 
         * Analog 
         * Input 
@@ -242,10 +431,23 @@ static void MX_USART3_UART_Init(void)
 static void MX_GPIO_Init(void)
 {
 
+  GPIO_InitTypeDef GPIO_InitStruct;
+
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, MOTOR_DIR1_Pin|MOTOR_DIR2_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : MOTOR_DIR1_Pin MOTOR_DIR2_Pin */
+  GPIO_InitStruct.Pin = MOTOR_DIR1_Pin|MOTOR_DIR2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
 }
 
