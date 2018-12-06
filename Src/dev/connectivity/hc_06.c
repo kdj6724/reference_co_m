@@ -14,7 +14,7 @@ void hc06_usart_rx_callback(USART_TypeDef* uart) {
 
   if(LL_USART_IsActiveFlag_RXNE(uart)) {
     t = LL_USART_ReceiveData8(uart);
-#if 0
+#if 1
     if((t!='\n') && (cnt < (HC06_UART_RXLEN-1))) {
       rxbuf_[cnt] = t;
       cnt++;

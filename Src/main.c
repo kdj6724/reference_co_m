@@ -81,10 +81,10 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
-#if 0
+#if 1
 int _write(int file, char* data, int len) {
 	HAL_StatusTypeDef status =
-		HAL_UART_Transmit(&huart1, (uint8_t*)data, len, 1000);
+		HAL_UART_Transmit(&huart2, (uint8_t*)data, len, 1000);
 	return (status == HAL_OK ? len : 0);
 }
 #endif
@@ -141,15 +141,24 @@ int main(void)
   ssd1306_Init();
   HAL_Delay(1000);
   ssd1306_Fill(White);
-  ssd1306_UpdateScreen();
   ssd1306_SetCursor(23,23);
+  ssd1306_WriteString("CO-M", Font_11x18, Black);
+  ssd1306_SetCursor(23,43);
+    ssd1306_WriteString("RE:BOT", Font_11x18, Black);
+  ssd1306_UpdateScreen();
   
   // motor
   rebotMotor.left.pwm = &htim2;
   rebotMotor.left.channel = TIM_CHANNEL_1;
+  rebotMotor.left.directionPin.group = GPIOC;
+  rebotMotor.left.directionPin.pin = MOTOR_DIR1_Pin;
 
   rebotMotor.right.pwm = &htim2;
   rebotMotor.right.channel = TIM_CHANNEL_2;
+  rebotMotor.right.directionPin.group = GPIOC;
+  rebotMotor.right.directionPin.pin = MOTOR_DIR2_Pin;
+
+  rebot_init(&rebotMotor);
 
   // bluetooth
   hc06_init(USART1);
@@ -161,6 +170,7 @@ int main(void)
   while (1)
   {
 	if (dequeue(&hc06MessageQueue_, data) > 0) {
+#if 0
 		ssd1306_Fill(White);
 		ssd1306_SetCursor(23,23);
 		switch(data[0]) {
@@ -180,11 +190,16 @@ int main(void)
 			rebot_turn_right(&rebotMotor);
 			ssd1306_WriteString("Turn right",Font_11x18,Black);
 			break;
+		default:
+			HAL_Delay(200);
 		}
 		ssd1306_UpdateScreen();
 		memset(data, 0, sizeof(data));
+#endif
+		rebot_data_parser(&rebotMotor, data);
+		memset(data, 0, sizeof(data));
 	}
-	HAL_Delay(200);
+
 #if 0
 	  ssd1306_SetCursor(23,23);
 	  ssd1306_WriteString("SEOUL",Font_11x18,Black);
